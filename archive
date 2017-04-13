@@ -1,0 +1,90 @@
+#!/bin/bash
+
+# NOTE: Copy this script to /usr/libexec/kubernetes/kubelet-plugins/volume/exec/almonteb~archive/archive
+
+JQ_URL=https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64
+JQ_PATH=/usr/bin/jq
+
+usage() {
+	err "Invalid usage. Usage: "
+	err "\t$0 init"
+	err "\t$0 mount <mount dir> <json params>"
+	err "\t$0 unmount <mount dir>"
+	exit 1
+}
+
+err() {
+	echo -ne $* 1>&2
+}
+
+log() {
+	echo -ne $* >&1
+}
+
+domount() {
+	MNTPATH=$1
+	JSON_PARAMS=$2
+	ARCHIVE=$(echo ${JSON_PARAMS} | jq -r '.archive')
+
+	mkdir -p ${MNTPATH} &> /dev/null
+
+	curl -sL "${ARCHIVE}" | gunzip | tar -xf - -C ${MNTPATH}
+	if [ $? -ne 0 ]; then
+		err '{"status": "Failure", "message": "Failed to extract ${ARCHIVE} at ${MNTPATH}"}'
+		exit 1
+	fi
+	log '{"status": "Success"}'
+	exit 0
+}
+
+unmount() {
+	MNTPATH=$1
+
+	rm -rf ${MNTPATH} &> /dev/null
+	if [ $? -ne 0 ]; then
+		err '{"status": "Failed", "message": "Failed to remove ${MNTPATH}"}'
+		exit 1
+	fi
+
+	log '{"status": "Success"}'
+	exit 0
+}
+
+op=$1
+
+if [ "$op" = "init" ]; then
+	if ! which jq >/dev/null; then
+		curl -L -o ${JQ_PATH} ${JQ_URL} && chmod +x ${JQ_PATH}
+		if [ $? -ne 0 ]; then
+			err '{"status": "Failed", "message": "Failed to download JQ from ${JQ_URL}"}'
+			exit 1
+		fi
+	fi
+	mkdir -p ${WORKSPACE_PREFIX}
+	log '{"status": "Success"}'
+	exit 0
+fi
+
+if [ $# -lt 2 ]; then
+	usage
+fi
+
+shift
+
+case "$op" in
+	mount)
+		domount $*
+		;;
+	unmount)
+		unmount $*
+		;;
+	attach|detach)
+		log '{"status": "Success"}'
+		exit 0
+		;;
+	*)
+		err '{"status": "${op} not supported"}'
+		exit 1
+esac
+
+exit 1
